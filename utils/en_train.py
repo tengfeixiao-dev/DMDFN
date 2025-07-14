@@ -267,139 +267,60 @@ def EnRun(config):
     train_loader, test_loader, val_loader = data_loader(config.batch_size, config.dataset_name,
                                                         text_context_length=config.text_context_len,
                                                         audio_context_length=config.audio_context_len)
-    model = RobD2vContext(config)
-    model.load_state_dict(torch.load("/home/xiaotengfei/MMML-cp/checkpoint/RH_acc_mosi_111_0.8979.pth", map_location=device))
-    model.to(device)
-    model.eval()
-
-        # 3. 提取特征和标签
-    A_special_features = []
-    V_special_features = []
-    A_common_features = []
-    V_common_features = []
-
-    with torch.no_grad():
-         # is_terminal = sys.stdout.isatty()
-        for batch in test_loader:
-        # for batch in tqdm(data_loader, ascii=True):  # Loop over all batches.
-            #文本数据
-            text_inputs = batch["text_tokens"].to(device)
-            text_mask = batch["text_masks"].to(device)
-            text_context_inputs = batch["text_context_tokens"].to(device)
-            text_context_mask = batch["text_context_masks"].to(device)
-            #语音数据
-            audio_inputs = batch["audio_inputs"].to(device)
-            audio_mask = batch["audio_masks"].to(device)
-            audio_context_inputs = batch["audio_context_inputs"].to(device)
-            audio_context_mask = batch["audio_context_masks"].to(device)
-            #视觉数据
-            visual_inputs = batch["visual_inputs"].to(device)
-            visual_mask = batch["visual_mask"].to(device)
-
-            targets = batch["targets"].to(device).view(-1, 1)
-
-            # 模型需要支持输出中间特征
-            outputs = model(text_inputs, text_mask, text_context_inputs, text_context_mask, audio_inputs,
-                                    audio_mask, audio_context_inputs, audio_context_mask,visual_inputs,visual_mask, return_features=True)
-            A_special_feature = outputs["A_special_feature"].squeeze(0).cpu().numpy() # 可替换为 h_A^s, h_V^s 等
-            V_special_feature = outputs["V_special_feature"].squeeze(0).cpu().numpy()
-            A_common_feature = outputs["A_common_feature"].squeeze(0).cpu().numpy()
-            V_common_feature = outputs["V_common_feature"].squeeze(0).cpu().numpy()
-            A_special_features.append(A_special_feature)
-            V_special_features.append(V_special_feature)
-            A_common_features.append(A_common_feature)
-            V_common_features.append(V_common_feature)
-                # 1. 对 Audio 特征进行 t-SNE 降维
-    print(len(V_common_features))
-    A_combined = np.concatenate([A_common_features, A_special_features], axis=0)
-    A_labels = np.array([0]*len(A_common_features) + [1]*len(A_special_features))  # 0: common, 1: special
-
-    A_tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, random_state=42).fit_transform(A_combined)
-
-   
-    # 2. 对 Visual 特征进行 t-SNE 降维
-    V_combined = np.concatenate([V_common_features, V_special_features], axis=0)
-    V_labels = np.array([0]*len(V_common_features) + [1]*len(V_special_features))  # 0: common, 1: special
-
-    V_tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, random_state=42).fit_transform(V_combined)
-
-    # 3. 绘图
-    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
-
-    # Audio 图
-    axs[0].scatter(A_tsne[A_labels==0, 0], A_tsne[A_labels==0, 1], c='red', label='Audio-Shared (A^c)', alpha=0.6, s=15)
-    axs[0].scatter(A_tsne[A_labels==1, 0], A_tsne[A_labels==1, 1], c='blue', label='Audio-Specific (A^s)', alpha=0.6, s=15)
-    axs[0].set_title("t-SNE of Audio Shared vs. Specific Features")
-    axs[0].legend()
-    axs[0].set_xticks([]); axs[0].set_yticks([])
-
-    # Visual 图
-    axs[1].scatter(V_tsne[V_labels==0, 0], V_tsne[V_labels==0, 1], c='red', label='Visual-Shared (V^c)', alpha=0.6, s=15)
-    axs[1].scatter(V_tsne[V_labels==1, 0], V_tsne[V_labels==1, 1], c='blue', label='Visual-Specific (V^s)', alpha=0.6, s=15)
-    axs[1].set_title("t-SNE of Visual Shared vs. Specific Features")
-    axs[1].legend()
-    axs[1].set_xticks([]); axs[1].set_yticks([])
-
-    plt.tight_layout()
-    plt.savefig("tsne_visualization.png", dpi=300)  # 保存为高清PNG图像
-    plt.show()      
-
     
+    if config.context:
+        if config.model == 'cc':
+            model = rob_d2v_cc_context(config).to(device)
+        elif config.model == 'cme':
+            model = rob_d2v_cme_context(config).to(device)
+        elif config.model =='test':
+            model=RobD2vContext(config).to(device)
+        # for param in model.data2vec_model.feature_extractor.parameters():
+        #     param.requires_grad = False #冻结模型中，对语音特征提取器参数的训练
+    else:
+        if config.model == 'cc':
+            model = rob_d2v_cc(config).to(device)
+        elif config.model == 'cme':
+            model = rob_d2v_cme(config).to(device)
+    # for param in model.data2vec_model.feature_extractor.parameters():
+    #     param.requires_grad = False
 
+    trainer = EnTrainer(config)
 
-    # if config.context:
-    #     if config.model == 'cc':
-    #         model = rob_d2v_cc_context(config).to(device)
-    #     elif config.model == 'cme':
-    #         model = rob_d2v_cme_context(config).to(device)
-    #     elif config.model =='test':
-    #         model=RobD2vContext(config).to(device)
-    #     # for param in model.data2vec_model.feature_extractor.parameters():
-    #     #     param.requires_grad = False #冻结模型中，对语音特征提取器参数的训练
-    # else:
-    #     if config.model == 'cc':
-    #         model = rob_d2v_cc(config).to(device)
-    #     elif config.model == 'cme':
-    #         model = rob_d2v_cme(config).to(device)
-    # # for param in model.data2vec_model.feature_extractor.parameters():
-    # #     param.requires_grad = False
+    lowest_eval_loss = 100
+    highest_eval_acc = 0
+    epoch = 0
+    best_epoch = 0
+    while True:
+        print('---------------------EPOCH: ', epoch, '--------------------')
+        epoch += 1
+        trainer.do_train(model, train_loader)
+        eval_results = trainer.do_test(model, val_loader, "VAL")
 
-    # trainer = EnTrainer(config)
-
-    # lowest_eval_loss = 100
-    # highest_eval_acc = 0
-    # epoch = 0
-    # best_epoch = 0
-    # while True:
-    #     print('---------------------EPOCH: ', epoch, '--------------------')
-    #     epoch += 1
-    #     trainer.do_train(model, train_loader)
-    #     eval_results = trainer.do_test(model, val_loader, "VAL")
-
-    #     # if eval_results['Loss'] < lowest_eval_loss:
-    #     #     lowest_eval_loss = eval_results['Loss']
-    #     #     torch.save(model.state_dict(),
-    #     #                config.model_save_path + f'RH_loss_{config.dataset_name}_{config.seed}_{lowest_eval_loss}.pth')
-    #     #     best_epoch = epoch
-    #     # if eval_results['Has0_acc_2'] >= highest_eval_acc:
-    #     #     highest_eval_acc = eval_results['Has0_acc_2']
-    #     #     torch.save(model.state_dict(),
-    #     #                config.model_save_path + f'RH_acc_{config.dataset_name}_{config.seed}_{highest_eval_acc}.pth')
-    #     if epoch - best_epoch >= config.early_stop:
-    #         break
-    #     # model.load_state_dict(torch.load(config.model_save_path+f'RH_acc_{config.dataset_name}_{config.seed}_{highest_eval_acc}.pth'))
-    #     test_results_loss = trainer.do_test(model, test_loader, "TEST")
-    #     print('%s: >> ' % ('TEST (highest val acc) ') + dict_to_str(test_results_loss))
-    #     if test_results_loss['Non0_acc_2'] >= highest_eval_acc:
-    #         highest_eval_acc = test_results_loss['Non0_acc_2']
-    #         torch.save(model.state_dict(),
-    #                    config.model_save_path + f'RH_acc_{config.dataset_name}_{config.seed}_{highest_eval_acc}.pth')
-    #         best_epoch = epoch
+        # if eval_results['Loss'] < lowest_eval_loss:
+        #     lowest_eval_loss = eval_results['Loss']
+        #     torch.save(model.state_dict(),
+        #                config.model_save_path + f'RH_loss_{config.dataset_name}_{config.seed}_{lowest_eval_loss}.pth')
+        #     best_epoch = epoch
+        # if eval_results['Has0_acc_2'] >= highest_eval_acc:
+        #     highest_eval_acc = eval_results['Has0_acc_2']
+        #     torch.save(model.state_dict(),
+        #                config.model_save_path + f'RH_acc_{config.dataset_name}_{config.seed}_{highest_eval_acc}.pth')
+        if epoch - best_epoch >= config.early_stop:
+            break
+        # model.load_state_dict(torch.load(config.model_save_path+f'RH_acc_{config.dataset_name}_{config.seed}_{highest_eval_acc}.pth'))
+        test_results_loss = trainer.do_test(model, test_loader, "TEST")
+        print('%s: >> ' % ('TEST (highest val acc) ') + dict_to_str(test_results_loss))
+        if test_results_loss['Non0_acc_2'] >= highest_eval_acc:
+            highest_eval_acc = test_results_loss['Non0_acc_2']
+            torch.save(model.state_dict(),
+                       config.model_save_path + f'RH_acc_{config.dataset_name}_{config.seed}_{highest_eval_acc}.pth')
+            best_epoch = epoch
 
 
 
-    # model.load_state_dict(
-    #     torch.load(config.model_save_path + f'RH_loss_{config.dataset_name}_{config.seed}_{lowest_eval_loss}.pth'))
-    # test_results_acc = trainer.do_test(model, test_loader, "TEST")
-    # print('%s: >> ' % ('TEST (lowest val loss) ') + dict_to_str(test_results_acc))
+    model.load_state_dict(
+        torch.load(config.model_save_path + f'RH_loss_{config.dataset_name}_{config.seed}_{lowest_eval_loss}.pth'))
+    test_results_acc = trainer.do_test(model, test_loader, "TEST")
+    print('%s: >> ' % ('TEST (lowest val loss) ') + dict_to_str(test_results_acc))
     
