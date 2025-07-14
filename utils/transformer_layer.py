@@ -214,7 +214,7 @@ class CrossTransformerEncoder(nn.Module):
     def forward(self, source_x, target_x):
         for attn, ff in self.layers:
             target_x_tmp = attn(target_x, source_x, source_x)
-            target_x = target_x_tmp 
+            target_x = target_x_tmp + target_x
             target_x = ff(target_x) + target_x
         return target_x
 
